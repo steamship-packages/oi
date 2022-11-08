@@ -56,29 +56,19 @@ class OiPackage(PackageService):
         search_task.wait()
 
         if not search_task.output.items:
-            return OiAnswer(
-                top_response=None
-            )
+            return OiAnswer(top_response=None)
         else:
             # Get return the item
-            print("The item is:", search_task.output.items[0])
-
             top = search_task.output.items[0].value
             file_id = top.external_id
 
-            print("The file id is", file_id)
-
-            # Get the file
+            # Get the file and turn it into an intent
             file = File.get(self.client, _id=file_id)
+            matched_intent = OiIntent.from_steamship_file(file)
 
-            print("The file is", file)
-
-            # Just return the first block for now..
-            block = file.blocks[0]
-
-            return OiAnswer(
-                top_response=OiResponse(text=block.text)
-            )
+            # Find the best matching response from the context adn return it
+            response = matched_intent.top_response(question.context)
+            return OiAnswer(top_response=response)
 
 
 handler = create_handler(OiPackage)
