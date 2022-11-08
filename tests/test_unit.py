@@ -38,6 +38,10 @@ HOW_TO_GET_IN_OFFICE = OiIntent(
     responses=[
         OiResponse(
             text="""Punch the code 1 2 3 4 on the front door of the ground floor"""
+        ),
+        OiResponse(
+            text="""Ring the front desk at 555-1212""",
+            context=["#afterhours"]
         )
     ]
 )
@@ -59,9 +63,19 @@ def test_response():
     resp = oi.learn_feed(feed=TEST_FEED)
     assert resp == [True, True] # A silly return type, but I'm trying to do this in half a day :)
 
-    q = OiQuestion(text="How do I rebase?")
-    a = oi.query(question=q)
-    print(a)
-    assert a is not None
-    assert a.top_response.text == HOW_TO_REBASE.responses[0].text
+    questions_context_answers = [
+        ("How do I rebase?", [], HOW_TO_REBASE.responses[0].text),
+        ("How do I fix main?", [], HOW_TO_REBASE.responses[0].text),
+        ("I'm stuck outside the office", [], HOW_TO_GET_IN_OFFICE.responses[0].text),
+        ("I'm stuck outside the office", ["#afterhours"], HOW_TO_GET_IN_OFFICE.responses[1].text),
+    ]
+
+    for tup in questions_context_answers:
+        question_text, question_context, answer_text = tup
+        a = oi.query(question=OiQuestion(text=question_text, context=question_context))
+        print(a)
+        assert a is not None
+        assert a.top_response is not None
+        assert a.top_response.text is not None
+        assert a.top_response.text == answer_text
 
