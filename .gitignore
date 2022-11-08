@@ -6,3 +6,4 @@ build
 src/keys.py
 src/.steamship/secrets.toml
 .steamship/secrets.toml
+.DS_Store

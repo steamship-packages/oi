@@ -2,18 +2,16 @@
 
 from steamship import Steamship
 
-from src.api import MyPackage
+from src.model import OiQuestion
+from src.api import OiPackage
 
 
-def test_greeting():
+def test_response():
     """You can test your app like a regular Python object."""
-    print("Running")
     client = Steamship()
-    app = MyPackage(client=client, config={"default_name": "World"})
+    oi = OiPackage(client=client)
 
-    assert app.greet() == "Hello, World."
-    assert app.greet(name="Ted") == "Hello, Ted."
+    q = OiQuestion(text="How do I rebase?")
+    a = oi.query(question=q)
+    assert a is not None
 
-    app2 = MyPackage(client=client, config={"default_name": "World", "enthusiastic": True})
-    assert app2.greet() == "Hello, World!"
-    assert app2.greet(name="Ted") == "Hello, Ted!"

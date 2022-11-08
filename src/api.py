@@ -1,35 +1,38 @@
 """Description of your app."""
-from typing import Type
+from typing import Optional, Type
 
 from steamship.invocable import Config, create_handler, post, PackageService
+from src.model import OiFeed, OiIntent, OiAnswer, OiPrompt, OiQuestion, OiResponse
 
-
-class MyPackageConfig(Config):
-    """Config object containing required parameters to initialize a MyPackage instance."""
-
-    # This config should match the corresponding configuration in your steamship.json
-    default_name: str  # Required
-    enthusiastic: bool = False  # Not required
-
-
-class MyPackage(PackageService):
+class OiPackage(PackageService):
     """Example steamship Package."""
-
-    config: MyPackageConfig
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
     def config_cls(self) -> Type[Config]:
-        """Return the Configuration class."""
-        return MyPackageConfig
+        return Config
 
-    @post("greet")
-    def greet(self, name: str = None) -> str:
-        """Return a greeting to the user."""
-        punct = "!" if self.config.enthusiastic else "."
-        name = name or self.config.default_name
-        return f"Hello, {name}{punct}"
+    @post("learn_intent")
+    def learn_intent(self, intent: OiIntent = None) -> str:
+        """Learn an intent."""
+        return "I have learned: {intent}"
+
+    @post("learn_intent")
+    def learn_feed(self, feed: OiFeed = None) -> str:
+        """Learn a whole feed of intents."""
+        results = []
+        for intent in feed.intents:
+            results.append(self.learn_intent(intent))
+
+    @post("query")
+    def query(self, question: Optional[OiQuestion] = None) -> OiAnswer:
+        """Query Oi with a question."""
+        return OiAnswer(
+            top_response=OiResponse(
+                text="Here's your answer!"
+            )
+        )
 
 
-handler = create_handler(MyPackage)
+handler = create_handler(OiPackage)
