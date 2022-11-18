@@ -1,7 +1,7 @@
 {
   "type": "package",
   "handle": "oi",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Learn facts. Then query them with natural language.",
   "author": "Ted Benson",
   "entrypoint": "api.handler",
