@@ -1,9 +1,9 @@
 {
   "type": "package",
   "handle": "oi",
-  "version": "1.0.6",
-  "description": "",
-  "author": "",
+  "version": "1.0.1",
+  "description": "Learn facts. Then query them with natural language.",
+  "author": "Ted Benson",
   "entrypoint": "api.handler",
   "public": true,
   "build_config": {
@@ -13,5 +13,25 @@
     ]
   },
   "configTemplate": {
+  },
+  "steamshipRegistry": {
+    "tagline": "Learn facts. Then query them with natural language.",
+    "tagline2": "Associate different responses with contexts that you can filter for.",
+    "usefulFor": "Useful for saving curated natural language content semantic search.",
+    "videoUrl": null,
+    "githubUrl": "https://github.com/steamship-plugins/oi",
+    "demoUrl": null,
+    "blogUrl": null,
+    "jupyterUrl": null,
+    "authorName": "Ted Benson",
+    "authorEmail": "ted@steamship.com",
+    "authorTwitter": "@edwardbenson",
+    "authorUrl": "https://www.edwardbenson.com/",
+    "tags": [
+      "NLP",
+      "Embeddings",
+      "Question Answering",
+      "Vector Search"
+    ]
   }
 }
