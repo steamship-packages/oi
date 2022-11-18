@@ -44,7 +44,7 @@ class OiResponse(CamelModel):
                 if tag.value and tag.value["text"]:
                     ret.text = tag.value["text"]
                 if tag.value and tag.value["text_options"]:
-                    ret.text = tag.value["text_options"]
+                    ret.text_options = tag.value["text_options"]
 
             elif tag.kind == OI_CONTEXT:
                 context.append(tag.name)
@@ -72,15 +72,13 @@ class OiResponse(CamelModel):
         )
         for tag in self.context or []:
             block.tags.append(Tag.CreateRequest(
-                kind=OI_CONTEXT, name=tag, start_idx=0, end_idx=len(self.text)
+                kind=OI_CONTEXT, name=tag, start_idx=0, end_idx=len(text)
             ))
         return block
 
     def score(self, other_context: Optional[List[str]] = None):
         """
-
         Higher is better.
-
         """
         if other_context is None:
             return -1 * len(self.context or [])
