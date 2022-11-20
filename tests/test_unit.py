@@ -5,7 +5,7 @@ from typing import Optional
 import pytest
 from steamship import Steamship, PackageInstance
 
-from src.model import OiQuestion, OiFeed, OiIntent, OiTrigger, OiResponse, OiResponseType
+from src.model import OiQuestion, OiFeed, OiIntent, OiTrigger, OiResponse, OiResponseType, GptPrompt
 from src.api import OiPackage
 import string
 import random
@@ -24,7 +24,7 @@ def random_name() -> str:
 
 HOW_TO_REBASE = OiIntent(
     handle="how-to-rebase",
-    prompts=[
+    triggers=[
         OiTrigger(text="how do i reset to upstream main"),
         OiTrigger(text="i want to reset my branch")
     ],
@@ -37,7 +37,7 @@ HOW_TO_REBASE = OiIntent(
 
 HOW_TO_GET_IN_OFFICE = OiIntent(
     handle="how-to-get-in-office",
-    prompts=[
+    triggers=[
         OiTrigger(text="how do i unlock the office door"),
         OiTrigger(text="how do i get in the office")
     ],
@@ -54,7 +54,7 @@ HOW_TO_GET_IN_OFFICE = OiIntent(
 
 INTENT_WITH_OPTIONS = OiIntent(
     handle="whats-for-dinner",
-    prompts=[
+    triggers=[
         OiTrigger(text="what's for dinner?")
     ],
     responses=[
@@ -68,12 +68,48 @@ INTENT_WITH_OPTIONS = OiIntent(
     ]
 )
 
+INTENT_WITH_GPT = OiIntent(
+    handle="tell-a-joke",
+    triggers=[
+        OiTrigger(text="tell me a fact about baseball"),
+        OiTrigger(text="tell me a fact about america"),
+        OiTrigger(text="teach me something about america")
+    ],
+    responses=[
+        OiResponse(
+            prompt_handle="pass-through",
+            text="""Below is a list of the most interesting simple facts in the world.
+
+Q: Tell me a fact about baseball
+A: A baseball game has nine innings.
+
+Q: Teach me something about pianos.
+A: A piano has 88 keys.
+            
+Q: What do you know about America?
+A: The capital is in Washington DC.
+
+Q: {query_text}
+A: """,
+        )
+    ]
+)
+
+PASS_THROUGH_PROMPT = GptPrompt(
+    handle="pass-through",
+    text="""{response_text}"""
+)
+
 TEST_FEED = OiFeed(
     handle="test-feed",
     intents=[
         HOW_TO_REBASE,
         HOW_TO_GET_IN_OFFICE,
-        INTENT_WITH_OPTIONS
+        INTENT_WITH_OPTIONS,
+        INTENT_WITH_GPT
+    ],
+    prompts=[
+        PASS_THROUGH_PROMPT
     ]
 )
 
@@ -105,7 +141,7 @@ def oi():
     GLOBAL_OI = OiPackage(client=client)
     resp = GLOBAL_OI.learn_feed(feed=TEST_FEED)
     assert isinstance(resp, OiFeed)
-    assert len(resp.intents) == 3
+    assert len(resp.intents) == 4
     for intent in resp.intents:
         assert intent.file_id is not None
         assert len(intent.responses) > 0
@@ -132,3 +168,11 @@ def test_response(oi: OiPackage, question, context, expected):
     assert a.top_response is not None
     assert a.top_response.text is not None
     assert a.top_response.text == expected
+
+def test_gpt(oi: OiPackage):
+    """You can test your app like a regular Python object."""
+    a = oi.query(question=OiQuestion(text="Tell me something about France"))
+    assert a is not None
+    assert a.top_response is not None
+    assert a.top_response.text is not None
+    print(a.top_response.text)

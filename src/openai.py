@@ -3,7 +3,7 @@ import requests
 from steamship import SteamshipError
 
 
-def complete(api_key: str, prompt: str, temperature: Optional[float] = 0.3):
+def complete(api_key: str, prompt: str, temperature: Optional[float] = 0.3) -> str:
     body = {
         "prompt": prompt,
         "model": "text-davinci-002",

@@ -25,7 +25,6 @@ class GptPrompt(CamelModel):
     Type the prompt with the following variables:
 
     {query_text} - The incoming user query
-    {prompt_text} - The prompt this user query matched to
     {response_text} - The initial response that intent produced
 
     """
@@ -44,12 +43,12 @@ class GptPrompt(CamelModel):
         })
 
     @staticmethod
-    def get_store(self, client: Steamship) -> KeyValueStore:
+    def get_store(client: Steamship) -> KeyValueStore:
         store = KeyValueStore(client, store_identifier="PromptStore")
         return store
 
     @staticmethod
-    def get_from_handle(self, client: Steamship, handle: str) -> "Optional[GptPrompt]":
+    def get_from_handle(client: Steamship, handle: str) -> "Optional[GptPrompt]":
         store = GptPrompt.get_store(client)
         obj = store.get(handle)
         if obj is None:
@@ -66,11 +65,10 @@ class GptPrompt(CamelModel):
             intent: "OiIntent",
             response_text: str,
             api_key: str
-    ):
+    ) -> str:
         """Generate the complete response using the template."""
         compiled_prompt = self.text.format(**{
             "query_text": question.text,
-            "prompt_text": prompt.text,
             "response_text": response_text
         })
         return complete(api_key=api_key, prompt=compiled_prompt, temperature=self.temperature)
@@ -114,6 +112,8 @@ class OiResponse(CamelModel):
                         ret.text = tag.value["text"]
                     if tag.value["text_options"]:
                         ret.text_options = tag.value["text_options"]
+                    if tag.value["prompt_handle"]:
+                        ret.prompt_handle = tag.value["prompt_handle"]
                     if tag.value["type"]:
                         ret.type = OiResponseType(tag.value["type"])
 
@@ -138,6 +138,7 @@ class OiResponse(CamelModel):
                 Tag.CreateRequest(kind=OI_RESPONSE, start_idx=0, end_idx=len(text), value={
                     "text": self.text,
                     "text_options": self.text_options,
+                    "prompt_handle": self.prompt_handle,
                     "type": self.type.value if self.type is not None else None
                 })
             ]
@@ -225,7 +226,10 @@ class OiIntent(CamelModel):
         """Add all the triggers to the embedding index, associated with the file ID containing the results."""
         ret = []
         new_additions = []
-        for trigger in self.triggers:
+        if self.triggers is None:
+            raise SteamshipError(message=f"Unable to learn intent handle={self.handle} because no triggers were found.")
+
+        for trigger in self.triggers or []:
             if trigger.embedding_id is not None:
                 logging.info(f"Skipping index embed of trigger: {trigger.embedding_id} / {trigger.text}")
                 ret.append(trigger)
@@ -325,7 +329,7 @@ class OiFeed(CamelModel):
     def save(self, client: Steamship, index: EmbeddingIndex) -> "OiFeed":
         logging.info(f"Saving feed {self.handle} ")
         if self.intents:
-            intents = [intent.save(client, intent, index) for intent in self.intents or []]
+            intents = [intent.save(client, index) for intent in self.intents or []]
             self.intents = intents
         if self.prompts:
             prompts = [prompt.save(client) for prompt in self.prompts or []]
