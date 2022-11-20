@@ -5,7 +5,7 @@ from typing import Optional
 import pytest
 from steamship import Steamship, PackageInstance
 
-from src.model import OiQuestion, OiFeed, OiIntent, OiPrompt, OiResponse, OiResponseType
+from src.model import OiQuestion, OiFeed, OiIntent, OiTrigger, OiResponse, OiResponseType
 from src.api import OiPackage
 import string
 import random
@@ -25,8 +25,8 @@ def random_name() -> str:
 HOW_TO_REBASE = OiIntent(
     handle="how-to-rebase",
     prompts=[
-        OiPrompt(text="how do i reset to upstream main"),
-        OiPrompt(text="i want to reset my branch")
+        OiTrigger(text="how do i reset to upstream main"),
+        OiTrigger(text="i want to reset my branch")
     ],
     responses=[
         OiResponse(
@@ -38,8 +38,8 @@ HOW_TO_REBASE = OiIntent(
 HOW_TO_GET_IN_OFFICE = OiIntent(
     handle="how-to-get-in-office",
     prompts=[
-        OiPrompt(text="how do i unlock the office door"),
-        OiPrompt(text="how do i get in the office")
+        OiTrigger(text="how do i unlock the office door"),
+        OiTrigger(text="how do i get in the office")
     ],
     responses=[
         OiResponse(
@@ -55,7 +55,7 @@ HOW_TO_GET_IN_OFFICE = OiIntent(
 INTENT_WITH_OPTIONS = OiIntent(
     handle="whats-for-dinner",
     prompts=[
-        OiPrompt(text="what's for dinner?")
+        OiTrigger(text="what's for dinner?")
     ],
     responses=[
         OiResponse(
@@ -111,8 +111,8 @@ def oi():
         assert len(intent.responses) > 0
         for response in intent.responses:
             assert response.block_id is not None
-        assert len(intent.prompts) > 0
-        for prompt in intent.prompts:
+        assert len(intent.triggers) > 0
+        for prompt in intent.triggers:
             assert prompt.embedding_id is not None
     return GLOBAL_OI
 

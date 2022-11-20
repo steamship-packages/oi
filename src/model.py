@@ -4,8 +4,11 @@ from enum import Enum
 from random import choice
 from typing import Optional, List
 
-from steamship import File, Block, Tag, EmbeddingIndex, Steamship
+from steamship import File, Block, Tag, EmbeddingIndex, Steamship, SteamshipError
 from steamship.base.model import CamelModel
+from steamship.utils.kv_store import KeyValueStore
+
+from openai import complete
 
 OI_RESPONSE = "oi-response"
 OI_CONTEXT = "oi-context"
@@ -14,6 +17,64 @@ OI_INTENT = "oi-intent"
 class OiResponseType(str, Enum):
     FIXED = "fixed"
     SHUFFLE = "shuffle"
+
+
+class GptPrompt(CamelModel):
+    """A Prompt for completion against GPT-3 or other system.
+
+    Type the prompt with the following variables:
+
+    {query_text} - The incoming user query
+    {prompt_text} - The prompt this user query matched to
+    {response_text} - The initial response that intent produced
+
+    """
+    handle: str
+
+    # Text of the response
+    text: str
+
+    temperature: Optional[float] = None
+
+    def save(self, client: Steamship):
+        store = GptPrompt.get_store(client)
+        store.set(self.handle, {
+            "text": self.text,
+            "temperature": self.temperature
+        })
+
+    @staticmethod
+    def get_store(self, client: Steamship) -> KeyValueStore:
+        store = KeyValueStore(client, store_identifier="PromptStore")
+        return store
+
+    @staticmethod
+    def get_from_handle(self, client: Steamship, handle: str) -> "Optional[GptPrompt]":
+        store = GptPrompt.get_store(client)
+        obj = store.get(handle)
+        if obj is None:
+            return None
+
+        return OiTrigger.parse_obj({
+            "text": obj.get("text"),
+            "temperature": obj.get("temperature")
+        })
+
+    def complete_response(
+            self,
+            question: "OiQuestion",
+            intent: "OiIntent",
+            response_text: str,
+            api_key: str
+    ):
+        """Generate the complete response using the template."""
+        compiled_prompt = self.text.format(**{
+            "query_text": question.text,
+            "prompt_text": prompt.text,
+            "response_text": response_text
+        })
+        return complete(api_key=api_key, prompt=compiled_prompt, temperature=self.temperature)
+
 
 class OiResponse(CamelModel):
     # The type of response
@@ -25,10 +86,16 @@ class OiResponse(CamelModel):
     # The options of the response, for response_type = SHUFFLE
     text_options: Optional[List[str]]
 
+    # The GPT-3 prompt to run to generate the final response
+    prompt_handle: Optional[str]
+
     # Tags describing the context in which this response is appropriate
     context: Optional[List[str]] = None
 
     block_id: Optional[str] = None
+
+    class Config:
+        use_enum_values = False
 
     @staticmethod
     def from_steamship_block(block) -> "Optional[OiResponse]":
@@ -41,10 +108,14 @@ class OiResponse(CamelModel):
             if tag.kind == OI_RESPONSE:
                 is_oi_response = True
                 ret.text = block.text
-                if tag.value and tag.value["text"]:
-                    ret.text = tag.value["text"]
-                if tag.value and tag.value["text_options"]:
-                    ret.text_options = tag.value["text_options"]
+                ret.block_id = tag.block_id
+                if tag.value:
+                    if tag.value["text"]:
+                        ret.text = tag.value["text"]
+                    if tag.value["text_options"]:
+                        ret.text_options = tag.value["text_options"]
+                    if tag.value["type"]:
+                        ret.type = OiResponseType(tag.value["type"])
 
             elif tag.kind == OI_CONTEXT:
                 context.append(tag.name)
@@ -66,7 +137,8 @@ class OiResponse(CamelModel):
             tags=[
                 Tag.CreateRequest(kind=OI_RESPONSE, start_idx=0, end_idx=len(text), value={
                     "text": self.text,
-                    "text_options": self.text_options
+                    "text_options": self.text_options,
+                    "type": self.type.value if self.type is not None else None
                 })
             ]
         )
@@ -92,23 +164,44 @@ class OiResponse(CamelModel):
                 return 0
         return matches
 
-    def complete_response(self):
+    def complete_response(
+            self,
+            client: Steamship,
+            question: "OiQuestion",
+            intent: "OiIntent",
+            openai_api_key: str
+    ):
         """Generate the complete response.
 
         A response can be fixed (e.g. `response.text`).
         But it can also be something generated, or one of a set of responses,
         """
+
+        # First, either select the fixed output text or a shuffled one.
         if self.type is None or self.type == OiResponseType.FIXED:
-            return OiResponse(text=self.text, context=self.context, block_id=self.block_id)
+            output_text = self.text
         elif self.type == OiResponseType.SHUFFLE:
             if self.text_options:
-                text = choice(self.text_options)
-                return OiResponse(text=text, context=self.context, block_id=self.block_id)
+                output_text = choice(self.text_options)
             else:
-                return OiResponse(text=self.text, context=self.context, block_id=self.block_id)
+                output_text = self.text
+
+        # Next, if we should pass it through a prompt, do it.
+        if self.prompt_handle is not None:
+            prompt = GptPrompt.get_from_handle(client, self.prompt_handle)
+            if prompt is None:
+                raise SteamshipError(message=f"Unable to locate completion prompt: {self.prompt_handle}")
+            output_text = prompt.complete_response(
+                question=question,
+                prompt=prompt,
+                intent=intent,
+                api_key=openai_api_key
+            )
+
+        return OiResponse(text=output_text, context=self.context, block_id=self.block_id)
 
 
-class OiPrompt(CamelModel):
+class OiTrigger(CamelModel):
     # The text of the response
     text: str
 
@@ -119,30 +212,30 @@ class OiIntent(CamelModel):
     # An intent should probably have a name
     handle: str
 
-    # An intent has a list of prompts that match it
-    prompts: List[OiPrompt] = None
+    # The triggers which match this fact.
+    triggers: List[OiTrigger] = None
 
-    # An intent has a list of responses for different contexts
+    # The responses which can come from this fact.
     responses: List[OiResponse] = None
 
     # The file ID to associate it with
     file_id: str = None
 
-    def add_to_index(self, index: EmbeddingIndex, file_id: str) -> List[OiPrompt]:
-        """Add all the prompts to the embedding index, associated with the file ID containing the results."""
+    def add_to_index(self, index: EmbeddingIndex, file_id: str) -> List[OiTrigger]:
+        """Add all the triggers to the embedding index, associated with the file ID containing the results."""
         ret = []
         new_additions = []
-        for prompt in self.prompts:
-            if prompt.embedding_id is not None:
-                logging.info(f"Skipping index embed of prompt: {prompt.embedding_id} / {prompt.text}")
-                ret.append(prompt)
+        for trigger in self.triggers:
+            if trigger.embedding_id is not None:
+                logging.info(f"Skipping index embed of trigger: {trigger.embedding_id} / {trigger.text}")
+                ret.append(trigger)
             else:
-                logging.info(f"Adding index embed of prompt: {prompt.text}")
-                res = index.insert(prompt.text, external_id=file_id)
+                logging.info(f"Adding index embed of trigger: {trigger.text}")
+                res = index.insert(trigger.text, external_id=file_id)
                 item = res.item_ids[0]
-                prompt.embedding_id = item.id
-                ret.append(prompt)
-                new_additions.append(prompt)
+                trigger.embedding_id = item.id
+                ret.append(trigger)
+                new_additions.append(trigger)
 
         if len(new_additions):
             logging.info(f"Added {len(new_additions)} new additions so embedding.")
@@ -150,8 +243,7 @@ class OiIntent(CamelModel):
             embed_task.wait()
 
             logging.info(f"Added {len(new_additions)} new additions so snapshotting.")
-            snapshot_task = index.create_snapshot()
-            snapshot_task.wait()
+            index.create_snapshot()
         else:
             logging.info(f"Did not add any new additions; neither embedding nor snapshotting.")
 
@@ -167,7 +259,7 @@ class OiIntent(CamelModel):
             if tag.kind == OI_INTENT:
                 handle = tag.name
 
-        # Note: we're not storing the prompts here..
+        # Note: we're not storing the trigger here..
         # I think that's OK for now, but in a future version where the embedding indices are more tightly
         # woven into the Block & Tag structure, we probably should.
         return OiIntent(
@@ -177,8 +269,6 @@ class OiIntent(CamelModel):
         )
 
     def top_response(self, other_context: Optional[List[str]] = None) -> Optional[OiResponse]:
-        print("context", other_context)
-        print("responses", self.responses)
         top_score = None
         top_response = None
 
@@ -208,13 +298,40 @@ class OiIntent(CamelModel):
             logging.info(f"Reloading intent file for {self.handle}: {self.file_id}")
             return File.get(client=client, _id=self.file_id)
 
+    def save(self, client: Steamship, index: EmbeddingIndex) -> "OiIntent":
+        # Create a file that contains the responses
+        response_file = self.to_steamship_file(client)
+
+        # Now add the triggers to the index, linking each item with the file
+        triggers = self.add_to_index(index, response_file.id)
+
+        self.file_id = response_file.id
+        self.triggers = triggers
+        self.responses = OiIntent.from_steamship_file(response_file).responses
+
+        return self
+
 
 class OiFeed(CamelModel):
     # Name of the feed
     handle: str
 
     # List of intents in the feed
-    intents: List[OiIntent]
+    intents: Optional[List[OiIntent]]
+
+    # List of prompts in the feed
+    prompts: Optional[List[GptPrompt]]
+
+    def save(self, client: Steamship, index: EmbeddingIndex) -> "OiFeed":
+        logging.info(f"Saving feed {self.handle} ")
+        if self.intents:
+            intents = [intent.save(client, intent, index) for intent in self.intents or []]
+            self.intents = intents
+        if self.prompts:
+            prompts = [prompt.save(client) for prompt in self.prompts or []]
+            self.prompts = prompts
+
+        return self
 
 class OiQuestion(CamelModel):
     text: str

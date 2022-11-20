@@ -5,17 +5,21 @@ from typing import Optional, Type, List
 from steamship import EmbeddingIndex, File, SteamshipError
 from steamship.invocable import Config, create_handler, post, PackageService
 
-from model import OiFeed, OiIntent, OiAnswer, OiPrompt, OiQuestion, OiResponse
+from model import OiFeed, OiIntent, OiAnswer, OiTrigger, OiQuestion, OiResponse
+
+class OiPackageConfig(Config):
+    openai_api_key: Optional[str] = None
 
 class OiPackage(PackageService):
     """Example steamship Package."""
 
+    config: OiPackageConfig
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.embedder = self.client.use_plugin("nlpcloud-tagger", config={
-            "task": "embeddings",
-            "model": "paraphrase-multilingual-mpnet-base-v2",
-            "dimensionality": 768
+        self.embedder = self.client.use_plugin("openai-embedder", config={
+            "model": "text-similarity-davinci-001",
+            "dimensionality": 12288
         })
         self.index = EmbeddingIndex.create(
             client=self.client,
@@ -25,7 +29,7 @@ class OiPackage(PackageService):
         )
 
     def config_cls(self) -> Type[Config]:
-        return Config
+        return OiPackageConfig
 
     @post("learn_intent")
     def learn_intent(self, intent: OiIntent = None) -> OiIntent:
@@ -34,32 +38,16 @@ class OiPackage(PackageService):
             raise SteamshipError(message="Provided `intent` was None")
         if isinstance(intent, dict):
             intent = OiIntent.parse_obj(intent)
-
-        # Create a file that contains the responses
-        response_file = intent.to_steamship_file(self.client)
-
-        # Now add the prompts to the index, linking each item with the file
-        prompts = intent.add_to_index(self.index, response_file.id)
-
-        intent.file_id = response_file.id
-        intent.prompts = prompts
-        intent.responses = OiIntent.from_steamship_file(response_file).responses
-
-        return intent
+        return intent.save(self.client, self.index)
 
     @post("learn_feed")
     def learn_feed(self, feed: OiFeed = None) -> OiFeed:
         """Learn a whole feed of intents."""
         if isinstance(feed, dict):
             feed = OiFeed.parse_obj(feed)
-
-        logging.info(f"Learning {feed} ")
         if not feed:
             raise SteamshipError(message="Provided `feed` was None")
-
-        intents = [self.learn_intent(intent) for intent in feed.intents or []]
-        feed.intents = intents
-        return feed
+        return feed.save(self.client, self.index)
 
     @post("query")
     def query(self, question: Optional[OiQuestion] = None) -> OiAnswer:
@@ -86,8 +74,13 @@ class OiPackage(PackageService):
             # Now we have to generate the return response.
             # 1. Fixed response
             # 2. Shuffled from a list of options
-            # 3. TODO: Prompt-based completion
-            ret_response = response.complete_response()
+            # Along with possible prompt-based completion
+            ret_response = response.complete_response(
+                client=self.client,
+                question=question,
+                intent=matched_intent,
+                openai_api_key=self.config.openai_api_key
+            )
 
             return OiAnswer(top_response=ret_response)
 
