@@ -33,13 +33,15 @@ class GptPrompt(CamelModel):
     # Text of the response
     text: str
 
-    temperature: Optional[float] = None
+    temperature: Optional[float] = 0.3
+    stop: Optional[str] = "\n"
 
     def save(self, client: Steamship):
         store = GptPrompt.get_store(client)
         store.set(self.handle, {
             "text": self.text,
-            "temperature": self.temperature
+            "temperature": self.temperature,
+            "stop": self.stop
         })
 
     @staticmethod
@@ -54,9 +56,11 @@ class GptPrompt(CamelModel):
         if obj is None:
             return None
 
-        return OiTrigger.parse_obj({
+        return GptPrompt.parse_obj({
+            "handle": handle,
             "text": obj.get("text"),
-            "temperature": obj.get("temperature")
+            "temperature": obj.get("temperature"),
+            "stop": obj.get("stop")
         })
 
     def complete_response(
@@ -67,11 +71,14 @@ class GptPrompt(CamelModel):
             api_key: str
     ) -> str:
         """Generate the complete response using the template."""
-        compiled_prompt = self.text.format(**{
-            "query_text": question.text,
+        params = {
+            "question_text": question.text,
             "response_text": response_text
-        })
-        return complete(api_key=api_key, prompt=compiled_prompt, temperature=self.temperature)
+        }
+        compiled_prompt = self.text.format(**params)
+        compiled_prompt = compiled_prompt.format(**params) # In case the RESPONSE had any variables in nit
+        compiled_prompt = compiled_prompt.strip()
+        return complete(api_key=api_key, prompt=compiled_prompt, stop=self.stop, temperature=self.temperature)
 
 
 class OiResponse(CamelModel):
@@ -194,8 +201,8 @@ class OiResponse(CamelModel):
                 raise SteamshipError(message=f"Unable to locate completion prompt: {self.prompt_handle}")
             output_text = prompt.complete_response(
                 question=question,
-                prompt=prompt,
                 intent=intent,
+                response_text=output_text,
                 api_key=openai_api_key
             )
 

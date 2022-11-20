@@ -5,6 +5,7 @@ from typing import Optional
 import pytest
 from steamship import Steamship, PackageInstance
 
+from openai import complete
 from src.model import OiQuestion, OiFeed, OiIntent, OiTrigger, OiResponse, OiResponseType, GptPrompt
 from src.api import OiPackage
 import string
@@ -89,7 +90,7 @@ A: A piano has 88 keys.
 Q: What do you know about America?
 A: The capital is in Washington DC.
 
-Q: {query_text}
+Q: {question_text}
 A: """,
         )
     ]
@@ -97,7 +98,8 @@ A: """,
 
 PASS_THROUGH_PROMPT = GptPrompt(
     handle="pass-through",
-    text="""{response_text}"""
+    text="""{response_text}""",
+    stop="\n\n"
 )
 
 TEST_FEED = OiFeed(
@@ -175,4 +177,12 @@ def test_gpt(oi: OiPackage):
     assert a is not None
     assert a.top_response is not None
     assert a.top_response.text is not None
-    print(a.top_response.text)
+
+def test_generate(oi: OiPackage):
+    """You can test your app like a regular Python object."""
+    client = Steamship(workspace=random_name())
+    oi = OiPackage(client=client)
+    prompt = "Tell me something"
+    res = complete(oi.config.openai_api_key, prompt)
+    assert res is not None
+
